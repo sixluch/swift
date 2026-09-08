@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: swiftbroker-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chatbroker
+      POSTGRES_PASSWORD: chatbroker
+      POSTGRES_DB: chatbroker
+    ports:
+      - "5432:5432"
+    volumes:
+      - swiftbroker-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbroker -d chatbroker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  swiftbroker-pgdata:
