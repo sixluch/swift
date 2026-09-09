@@ -36,7 +36,7 @@ Companion to `chat-broker-ai-vibe-prompt.md`. This file breaks the project into 
 - [x] **`backend/`** — write DB schema/migrations for `leads`, `conversations`, `messages`, `quote_requests` (see schema in the vibe prompt, Section 4)
 - [x] **`backend/`** — run migration, verify tables exist
 - [x] **`backend/`** — build `POST /leads` route: validates email + phone, inserts a `leads` row, returns `leadId`
-- [x] **`frontend/`** — build the lead-capture UI (email + phone form) — this is the gate before chat unlocks
+- [x] **`frontend/`** — build the lead-capture UI (email + phone, with a country-code select and no default country) — this is the gate before chat unlocks
 - [x] **`frontend/`** — wire form submit → `api-client.ts` → `backend`'s `POST /leads` → on success, unlock the chat UI and store `leadId` in client state (e.g. React context or a cookie/session)
 - [x] Add basic validation + error states on both sides (client-side format checks in `frontend/`, server-side validation in `backend/`, plus network-failure handling in the UI)
 
@@ -64,11 +64,11 @@ Companion to `chat-broker-ai-vibe-prompt.md`. This file breaks the project into 
 
 *Everything in this phase lives entirely in `backend/`.*
 
-- [ ] Define types: `CoverageType`, `QuoteRequest`, `Quote`, `QuoteResponse` (see vibe prompt Section 5)
-- [ ] Build `backend/src/lib/quotes-api/providers/mock-provider.ts` — returns at least 3 quotes, varied by age + coverage type(s) requested (can be randomized within realistic bounds, or a lookup table — either is fine for mock data)
-- [ ] Build `backend/src/lib/quotes-api/index.ts` as the public `getQuotes()` wrapper function (this is the "adapter" — the seam where a real 3rd-party API will plug in later)
-- [ ] Expose `POST /quotes` as a standalone REST endpoint calling the wrapper
-- [ ] Test independently with curl/Postman/Thunder Client, hitting the backend directly — confirm it returns ≥3 quotes for a few different input combos
+- [x] Define types: `CoverageType`, `QuoteRequest`, `Quote`, `QuoteResponse` (see vibe prompt Section 5)
+- [x] Build `backend/src/lib/quotes-api/providers/mock-provider.ts` — returns at least 3 quotes, varied by age + coverage type(s) requested (can be randomized within realistic bounds, or a lookup table — either is fine for mock data) — 5 fictional insurers × 3 cumulative tiers; deterministic pricing (age band × insurer factor × coverage breadth), no randomness.
+- [x] Build `backend/src/lib/quotes-api/index.ts` as the public `getQuotes()` wrapper function (this is the "adapter" — the seam where a real 3rd-party API will plug in later)
+- [x] Expose `POST /quotes` as a standalone REST endpoint calling the wrapper
+- [x] Test independently with curl/Postman/Thunder Client, hitting the backend directly — confirm it returns ≥3 quotes for a few different input combos
 
 **Checkpoint:** `POST /quotes` works completely independent of the chat/AI and of the frontend — provable with a raw HTTP request straight to the backend.
 
@@ -76,12 +76,12 @@ Companion to `chat-broker-ai-vibe-prompt.md`. This file breaks the project into 
 
 ## Phase 4 — AI Chat (text only first)
 
-- [ ] **`backend/`** — build `POST /chat` route using Vercel AI SDK, routed through the AI Gateway
-- [ ] **`backend/`** — write the system prompt (see vibe prompt Section 6) — persona name, rules, required fields to collect
-- [ ] **`frontend/`** — wire the chat UI to the backend's `/chat` endpoint using `useChat` (streaming responses, pointed at `NEXT_PUBLIC_BACKEND_URL`)
-- [ ] **`backend/`** — persist each message to the `messages` table (role, content, `input_mode: 'typed'`, `conversation_id`)
-- [ ] **`frontend/`** — pass the coverage-type chip selections from Phase 2 up to the backend as part of the chat request context, so the AI doesn't re-ask if already selected
-- [ ] Test a full text conversation manually, frontend talking to a deployed (or locally-networked) backend: greeting → name → age → coverage confirmation
+- [x] **`backend/`** — build `POST /chat` route using Vercel AI SDK, routed through the AI Gateway
+- [x] **`backend/`** — write the system prompt (see vibe prompt Section 6) — persona name, rules, required fields to collect
+- [x] **`frontend/`** — wire the chat UI to the backend's `/chat` endpoint using `useChat` (streaming responses, pointed at `NEXT_PUBLIC_BACKEND_URL`)
+- [x] **`backend/`** — persist each message to the `messages` table (role, content, `input_mode: 'typed'`, `conversation_id`)
+- [x] **`frontend/`** — pass the coverage-type chip selections from Phase 2 up to the backend as part of the chat request context, so the AI doesn't re-ask if already selected
+- [x] Test a full text conversation manually, frontend talking to a deployed (or locally-networked) backend: greeting → name → age → coverage confirmation — verified against the local backend by curl (streaming SSE) and by build; the deployed-backend variant waits on deployment.
 
 **Checkpoint:** You can have a real, working text conversation with the AI, and it correctly collects name/age/coverage.
 
@@ -89,11 +89,11 @@ Companion to `chat-broker-ai-vibe-prompt.md`. This file breaks the project into 
 
 ## Phase 5 — Tool Calling: AI → Mock Quotes API
 
-- [ ] **`backend/`** — register `getQuotes` as a callable tool/function in the AI SDK request (schema: name, age, coverageTypes), calling straight into the `quotes-api` module from Phase 3 (no HTTP hop needed — same process)
-- [ ] **`backend/`** — when the AI has all required fields, confirm it calls the tool instead of inventing quotes itself
-- [ ] **`backend/`** — on tool result, insert a row into `quote_requests` (snapshot of what was returned) and stream the structured quote data back to the frontend as part of the chat response
-- [ ] **`frontend/`** — render the returned quotes as cards in the right-hand results panel (replacing the empty state), each with insurer, plan name, premium, coverage summary
-- [ ] **`frontend/`** — add a basic sort/filter control on the results panel (e.g. sort by price) — the screenshot's empty-state copy explicitly promises "ranked, filterable, comparable"
+- [x] **`backend/`** — register `getQuotes` as a callable tool/function in the AI SDK request (schema: name, age, coverageTypes), calling straight into the `quotes-api` module from Phase 3 (no HTTP hop needed — same process)
+- [x] **`backend/`** — when the AI has all required fields, confirm it calls the tool instead of inventing quotes itself
+- [x] **`backend/`** — on tool result, insert a row into `quote_requests` (snapshot of what was returned) and stream the structured quote data back to the frontend as part of the chat response
+- [x] **`frontend/`** — render the returned quotes as cards in the right-hand results panel (replacing the empty state), each with insurer, plan name, premium, coverage summary
+- [x] **`frontend/`** — add a basic sort/filter control on the results panel (e.g. sort by price) — the screenshot's empty-state copy explicitly promises "ranked, filterable, comparable" — sort by cheapest/priciest/most-cover, plus an insurer filter.
 
 **Checkpoint:** Full text-only flow works end to end: lead capture → coverage select → chat → ≥3 quotes rendered as cards.
 
@@ -101,12 +101,12 @@ Companion to `chat-broker-ai-vibe-prompt.md`. This file breaks the project into 
 
 ## Phase 6 — Voice Input
 
-- [ ] **`frontend/`** — implement the Speak/Chat toggle in the header to switch input mode
-- [ ] **`frontend/`** — wire `SpeechRecognition` (Web Speech API) for voice-to-text, with a graceful fallback/message for unsupported browsers (all of this is browser-only, no backend change needed)
-- [ ] **`frontend/`** — show live partial transcript while speaking
-- [ ] **`frontend/`** — on final transcript, populate the same send pipeline used for typed messages, tagging the request with `input_mode: 'voice'`
-- [ ] **`backend/`** — persist the `input_mode` flag as-is on the `messages` table (no new logic needed if Phase 4 already stores it generically)
-- [ ] (Optional, can defer) Add TTS playback of AI replies when in Speak mode — `frontend/` only
+- [x] **`frontend/`** — implement the Speak/Chat toggle in the header to switch input mode
+- [x] **`frontend/`** — wire `SpeechRecognition` (Web Speech API) for voice-to-text, with a graceful fallback/message for unsupported browsers (all of this is browser-only, no backend change needed)
+- [x] **`frontend/`** — show live partial transcript while speaking
+- [x] **`frontend/`** — on final transcript, populate the same send pipeline used for typed messages, tagging the request with `input_mode: 'voice'`
+- [x] **`backend/`** — persist the `input_mode` flag as-is on the `messages` table (no new logic needed if Phase 4 already stores it generically)
+- [ ] (Optional, can defer) Add TTS playback of AI replies when in Speak mode — `frontend/` only — **deferred, not built**; voice input works without it.
 
 **Checkpoint:** A full conversation can be conducted by voice alone, indistinguishable to the backend from a typed one.
 
@@ -114,13 +114,13 @@ Companion to `chat-broker-ai-vibe-prompt.md`. This file breaks the project into 
 
 ## Phase 7 — Polish & Hardening
 
-- [ ] **`frontend/`** — error states: AI call fails, tool call fails, network drop — all show a graceful retry option instead of breaking the UI
-- [ ] **`frontend/`** — loading/typing indicators while the AI is generating or fetching quotes
-- [ ] **`backend/`** — basic rate limiting or bot protection on `POST /leads`
-- [ ] Analytics events: lead captured, coverage selected, quote shown, quote clicked — trigger from `frontend/` (user-facing actions), or `backend/` for server-confirmed events (e.g. lead actually saved); even just console.log/stub for now, or wire to a real analytics tool if you have one
-- [ ] Mobile QA pass on `frontend/` — test the redirect-from-button flow on an actual phone
-- [ ] **`backend/`** — confirm the CRM-facing lead data (email, phone, source, timestamp) is actually queryable/exportable from the DB for reporting
-- [ ] Double-check CORS and env vars are correctly scoped in production — `backend/` env vars (DB creds, AI Gateway key) must never leak into the `frontend/` bundle
+- [x] **`frontend/`** — error states: AI call fails, tool call fails, network drop — all show a graceful retry option instead of breaking the UI
+- [x] **`frontend/`** — loading/typing indicators while the AI is generating or fetching quotes
+- [x] **`backend/`** — basic rate limiting or bot protection on `POST /leads`
+- [x] Analytics events: lead captured, coverage selected, quote shown, quote clicked — trigger from `frontend/` (user-facing actions), or `backend/` for server-confirmed events (e.g. lead actually saved); even just console.log/stub for now, or wire to a real analytics tool if you have one
+- [ ] Mobile QA pass on `frontend/` — test the redirect-from-button flow on an actual phone — **not done: needs a real device**; layout audited only
+- [x] **`backend/`** — confirm the CRM-facing lead data (email, phone, source, timestamp) is actually queryable/exportable from the DB for reporting
+- [x] Double-check CORS and env vars are correctly scoped in production — `backend/` env vars (DB creds, AI Gateway key) must never leak into the `frontend/` bundle
 
 **Checkpoint:** App is demo-ready end to end, on both desktop and mobile, with frontend and backend deployed as separate services.
 

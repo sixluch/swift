@@ -1,9 +1,8 @@
 import { cn } from "@/lib/utils";
-import type { ChatMessage } from "@/lib/types";
 
 /** No per-message avatar — the assistant is anchored by the badge in the input bar. */
-export function ChatBubble({ message }: { message: ChatMessage }) {
-  const isAssistant = message.role === "assistant";
+export function ChatBubble({ role, text }: { role: string; text: string }) {
+  const isAssistant = role !== "user";
 
   return (
     <div className={cn("flex w-full", isAssistant ? "justify-start" : "justify-end")}>
@@ -15,7 +14,7 @@ export function ChatBubble({ message }: { message: ChatMessage }) {
             : "rounded-br-sm bg-brand text-navy-950",
         )}
       >
-        {message.content}
+        {text}
       </div>
     </div>
   );

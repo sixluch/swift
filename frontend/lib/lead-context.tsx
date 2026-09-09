@@ -9,6 +9,8 @@ interface LeadContextValue {
   /** The chat input stays locked until a lead record exists. */
   isUnlocked: boolean;
   setLeadId: (id: string) => void;
+  /** Drops the stored lead so the capture gate comes back. */
+  clearLead: () => void;
   /** UTM/source param carried over from the marketing site button. */
   source: string;
 }
@@ -32,9 +34,14 @@ export function LeadProvider({ children }: { children: React.ReactNode }) {
     setLeadIdState(id);
   }, []);
 
+  const clearLead = useCallback(() => {
+    sessionStorage.removeItem(STORAGE_KEY);
+    setLeadIdState(null);
+  }, []);
+
   const value = useMemo(
-    () => ({ leadId, isUnlocked: leadId !== null, setLeadId, source }),
-    [leadId, setLeadId, source],
+    () => ({ leadId, isUnlocked: leadId !== null, setLeadId, clearLead, source }),
+    [leadId, setLeadId, clearLead, source],
   );
 
   return <LeadContext.Provider value={value}>{children}</LeadContext.Provider>;

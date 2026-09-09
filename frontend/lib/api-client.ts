@@ -1,4 +1,6 @@
 import { config } from "./config";
+import type { CoverageType } from "./coverage";
+import type { Quote } from "./types";
 
 /** Every backend call in the app goes through this module — nothing else may fetch the API directly. */
 
@@ -21,7 +23,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     });
-  } catch {
+  } catch (err) {
+    // An aborted request is the caller superseding itself, not a failure.
+    if ((err as Error | undefined)?.name === "AbortError") throw err;
     throw new ApiError("Can't reach the server. Check your connection and try again.", 0);
   }
 
@@ -44,6 +48,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export interface CreateLeadInput {
   email: string;
+  /** Full E.164 number — the gate assembles it from its country-code select. */
   phone: string;
   source?: string;
 }
@@ -53,6 +58,18 @@ export interface CreateLeadResult {
   createdAt: string;
 }
 
+export interface PreviewQuotesInput {
+  coverageTypes: CoverageType[];
+  /** Omit until the conversation has produced one — the backend assumes a mid-band age. */
+  age?: number;
+}
+
+export interface PreviewQuotesResult {
+  quotes: Quote[];
+  age: number;
+  assumedAge: boolean;
+}
+
 export const api = {
   health: () => request<{ ok: boolean; service: string }>("/health"),
 
@@ -60,5 +77,12 @@ export const api = {
     request<CreateLeadResult>("/leads", {
       method: "POST",
       body: JSON.stringify(input),
+    }),
+
+  previewQuotes: (input: PreviewQuotesInput, signal?: AbortSignal) =>
+    request<PreviewQuotesResult>("/quotes/preview", {
+      method: "POST",
+      body: JSON.stringify(input),
+      signal,
     }),
 };

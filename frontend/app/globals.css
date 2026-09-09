@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -136,4 +136,14 @@
   --color-navy-800: #1e2c55;
   --color-brand: #4a9fe8;
   --color-whatsapp: #25d366;
+}
+
+/* Scroll without a visible scrollbar (the panels are obviously scrollable from
+   their content). Wheel, touch, and keyboard scrolling are unaffected. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }

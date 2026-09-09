@@ -1,43 +1,65 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { track } from "@/lib/analytics";
 import { ApiError, api } from "@/lib/api-client";
 import { config } from "@/lib/config";
+import { COUNTRY_CODES, guessCountryIso, toE164 } from "@/lib/country-codes";
 import { useLead } from "@/lib/lead-context";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_RE = /^\+?[0-9]{7,15}$/;
+/** Same rule the backend applies to the assembled number. */
+const E164_RE = /^\+[0-9]{7,15}$/;
+
+type FieldErrors = { email?: string; phone?: string };
 
 /** Client-side mirror of the backend rules — the backend stays the source of truth. */
-function validate(email: string, phone: string) {
-  const errors: { email?: string; phone?: string } = {};
+function validate(email: string, countryIso: string, localNumber: string): FieldErrors {
+  const errors: FieldErrors = {};
   if (!EMAIL_RE.test(email.trim())) errors.email = "Enter a valid email address.";
-  if (!PHONE_RE.test(phone.replace(/[\s\-().]/g, ""))) errors.phone = "Enter a valid phone number.";
+
+  if (!countryIso) errors.phone = "Select your country code.";
+  else if (!E164_RE.test(toE164(countryIso, localNumber)))
+    errors.phone = "Enter a valid phone number.";
+
   return errors;
 }
 
 export function LeadGate() {
   const { setLeadId, source } = useLead();
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState(config.defaultCountryCode + " ");
-  const [errors, setErrors] = useState<{ email?: string; phone?: string }>({});
+  const [countryIso, setCountryIso] = useState("");
+  const [localNumber, setLocalNumber] = useState("");
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Preselect from the browser locale after mount — doing it during render
+  // would make the server and client markup disagree. Stays empty if we can't
+  // tell, so nobody is silently assigned the wrong country.
+  useEffect(() => {
+    setCountryIso((current) => current || guessCountryIso());
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
 
-    const found = validate(email, phone);
+    const found = validate(email, countryIso, localNumber);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
     setSubmitting(true);
     try {
-      const { leadId } = await api.createLead({ email, phone, source });
+      const { leadId } = await api.createLead({
+        email,
+        phone: toE164(countryIso, localNumber),
+        source,
+      });
+      track({ name: "lead_captured", source });
       setLeadId(leadId);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -88,17 +110,38 @@ export function LeadGate() {
             <Label htmlFor="phone" className="text-slate-300">
               Phone
             </Label>
-            <Input
-              id="phone"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              placeholder={`${config.defaultCountryCode} 3 123 456`}
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              aria-invalid={Boolean(errors.phone)}
-              className="border-white/10 bg-[#1E2C55] text-white placeholder:text-slate-500"
-            />
+            {/* A native select, not a custom dropdown: on mobile it opens the
+                OS picker, which beats scrolling 200 rows in a styled listbox. */}
+            <div className="flex gap-2">
+              <select
+                id="country-code"
+                aria-label="Country code"
+                value={countryIso}
+                onChange={(e) => setCountryIso(e.target.value)}
+                aria-invalid={Boolean(errors.phone) && !countryIso}
+                className="w-[7.5rem] shrink-0 rounded-md border border-white/10 bg-[#1E2C55] px-2 py-2 text-sm text-white outline-none focus-visible:border-brand"
+              >
+                <option value="" disabled>
+                  Code
+                </option>
+                {COUNTRY_CODES.map((country) => (
+                  <option key={country.iso} value={country.iso}>
+                    {country.dial} {country.name}
+                  </option>
+                ))}
+              </select>
+              <Input
+                id="phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel-national"
+                placeholder="3 123 456"
+                value={localNumber}
+                onChange={(e) => setLocalNumber(e.target.value)}
+                aria-invalid={Boolean(errors.phone)}
+                className="min-w-0 flex-1 border-white/10 bg-[#1E2C55] text-white placeholder:text-slate-500"
+              />
+            </div>
             {errors.phone && <p className="text-xs text-red-400">{errors.phone}</p>}
           </div>
         </div>
