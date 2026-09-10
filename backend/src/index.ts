@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "./env.js";
+import { adminRoute } from "./routes/admin.js";
 import { chatRoute } from "./routes/chat.js";
 import { leadsRoute } from "./routes/leads.js";
 import { rateLimit } from "./lib/rate-limit.js";
@@ -39,9 +40,20 @@ app.use(
   }),
 );
 
+// A password is the real defence; this just makes guessing it slow.
+app.use(
+  "/admin/auth/login",
+  rateLimit({
+    limit: 10,
+    windowMs: 15 * 60 * 1000,
+    message: "Too many sign-in attempts. Please wait a few minutes and try again.",
+  }),
+);
+
 app.route("/leads", leadsRoute);
 app.route("/chat", chatRoute);
 app.route("/quotes", quotesRoute);
+app.route("/admin", adminRoute);
 
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   console.log(`swiftbroker-backend listening on http://localhost:${info.port}`);

@@ -14,5 +14,7 @@
     "resolveJsonModule": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  // Tests import with an explicit .ts extension so `node` can run them directly.
+  "exclude": ["src/**/*.test.ts"]
 }

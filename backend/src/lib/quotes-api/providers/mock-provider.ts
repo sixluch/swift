@@ -1,4 +1,5 @@
 import { env } from "../../../env.js";
+import { countryFactor } from "../country-pricing.js";
 import type { CoverageType, QuoteRequest, QuoteResponse, Quote } from "../types.js";
 
 /** Fictional insurers — placeholders until a real integration replaces this provider. */
@@ -66,21 +67,25 @@ function premiumFor(tier: Tier, insurerFactor: number, request: QuoteRequest): n
   const requested = request.coverageTypes.length;
   const breadthLoading = 1 + 0.05 * Math.max(0, requested - 1);
   const maternityLoading = request.coverageTypes.includes("maternity") ? 1.15 : 1;
+  const region = countryFactor(request.country);
+
+  // Each person on the policy is priced at their own age band and added, which
+  // is how insurers actually build a family premium.
+  const ages = [request.age, ...(request.additionalAges ?? [])];
+  const perPerson = ages.reduce((total, age) => total + ageFactor(age), 0);
 
   const premium =
-    tier.basePremium *
-    insurerFactor *
-    ageFactor(request.age) *
-    breadthLoading *
-    maternityLoading;
+    tier.basePremium * insurerFactor * perPerson * breadthLoading * maternityLoading * region;
 
   return Math.round(premium);
 }
 
-function summarize(tier: Tier): string {
+function summarize(tier: Tier, request: QuoteRequest): string {
   const covered = tier.covers.map((c) => c[0].toUpperCase() + c.slice(1)).join(", ");
   const copay = tier.copay === 0 ? "no co-pay" : `${tier.copay}% co-pay`;
-  return `${covered} · ${env.QUOTE_CURRENCY} ${tier.annualLimit.toLocaleString("en-US")} annual limit · ${copay} · ${tier.room}`;
+  const people = 1 + (request.additionalAges?.length ?? 0);
+  const who = people > 1 ? `Family of ${people}` : "Individual";
+  return `${who} · ${covered} · ${env.QUOTE_CURRENCY} ${tier.annualLimit.toLocaleString("en-US")} annual limit · ${copay} · ${tier.room}`;
 }
 
 function buildQuote(
@@ -94,7 +99,7 @@ function buildQuote(
     planName: `${insurer.name.split(" ")[0]} ${tier.label}`,
     monthlyPremium: premiumFor(tier, insurer.priceFactor, request),
     currency: env.QUOTE_CURRENCY,
-    coverageSummary: summarize(tier),
+    coverageSummary: summarize(tier, request),
     coverageTypes: tier.covers,
   };
 }

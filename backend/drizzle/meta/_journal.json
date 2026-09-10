@@ -22,6 +22,20 @@
       "when": 1788980467020,
       "tag": "0002_ambitious_khan",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788983920247,
+      "tag": "0003_wise_whiplash",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788987409090,
+      "tag": "0004_strong_lockheed",
+      "breakpoints": true
     }
   ]
 }

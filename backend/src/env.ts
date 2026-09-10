@@ -18,4 +18,16 @@ export const env = {
   BRAND_NAME: process.env.BRAND_NAME ?? "SwiftBrokers",
   ASSISTANT_NAME: process.env.ASSISTANT_NAME ?? "Nomi",
   QUOTE_CURRENCY: process.env.QUOTE_CURRENCY ?? "USD",
+
+  /** How long an admin stays signed in. Short by design — this is a bulk PII surface. */
+  ADMIN_SESSION_HOURS: Number(process.env.ADMIN_SESSION_HOURS ?? 8),
+  /**
+   * Set to the shared registrable domain in production (e.g. ".swiftbrokers.com")
+   * so the session cookie set by api.* is sent by app.*. Left empty locally,
+   * where both servers are on `localhost` and ports don't affect SameSite.
+   */
+  ADMIN_COOKIE_DOMAIN: process.env.ADMIN_COOKIE_DOMAIN ?? "",
+  ADMIN_COOKIE_SECURE: (process.env.ADMIN_COOKIE_SECURE ?? "").toLowerCase() === "true"
+    ? true
+    : process.env.NODE_ENV === "production",
 };

@@ -35,6 +35,8 @@ quotesRoute.post("/preview", async (c) => {
       name: PREVIEW_NAME,
       age,
       coverageTypes: parsed.data.coverageTypes,
+      country: parsed.data.country,
+      additionalAges: parsed.data.additionalAges,
     });
     return c.json({ quotes, age, assumedAge: parsed.data.age === undefined });
   } catch (err) {

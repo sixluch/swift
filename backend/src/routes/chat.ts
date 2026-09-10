@@ -1,13 +1,24 @@
 import { Hono } from "hono";
-import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from "ai";
+import {
+  convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  stepCountIs,
+  streamText,
+  type UIMessage,
+} from "ai";
 import { chatModel } from "../lib/ai/model.js";
 import { buildSystemPrompt } from "../lib/ai/prompt.js";
 import { buildTools } from "../lib/ai/tools.js";
 import {
   LeadNotFoundError,
   findOrCreateConversation,
+  getProfile,
+  hasQuotes,
   saveMessage,
+  updateProfile,
 } from "../lib/conversations.js";
+import { isReadyForQuotes, nextSlot, type Profile } from "../lib/profile.js";
 import { fieldErrors } from "../lib/http.js";
 import { chatRequestSchema } from "../lib/validation.js";
 
@@ -35,7 +46,7 @@ chatRoute.post("/", async (c) => {
     return c.json({ error: "Validation failed.", fields: fieldErrors(parsed.error) }, 400);
   }
 
-  const { leadId, coverageTypes, inputMode } = parsed.data;
+  const { leadId, slotAnswer, inputMode } = parsed.data;
   const messages = parsed.data.messages as unknown as UIMessage[];
 
   let model: string;
@@ -47,8 +58,18 @@ chatRoute.post("/", async (c) => {
   }
 
   let conversationId: string;
+  let profile: Profile;
+  let quotesShown: boolean;
   try {
-    conversationId = await findOrCreateConversation(leadId, coverageTypes);
+    conversationId = await findOrCreateConversation(leadId);
+
+    // A card or dropdown answer is applied here, before the model sees anything,
+    // so the stored value is exactly what the user picked.
+    profile = slotAnswer
+      ? await updateProfile(conversationId, { [slotAnswer.slot]: slotAnswer.value })
+      : await getProfile(conversationId);
+
+    quotesShown = await hasQuotes(conversationId);
 
     const latest = messages[messages.length - 1];
     if (latest?.role === "user") {
@@ -67,26 +88,56 @@ chatRoute.post("/", async (c) => {
     return c.json({ error: "Something went wrong. Please try again." }, 500);
   }
 
+  // The tools mutate this as they save answers, so the prompt for the *next*
+  // turn and the profile we stream back both reflect what actually landed.
+  const profileRef = { current: profile };
+
   try {
-    const result = streamText({
-      model,
-      system: buildSystemPrompt(coverageTypes),
-      messages: await convertToModelMessages(messages),
-      tools: buildTools(conversationId, coverageTypes),
-      // Let the model speak again after the tool returns, instead of ending on raw data.
-      stopWhen: stepCountIs(4),
-      onError: ({ error }) => console.error("[POST /chat] stream failed:", error),
-      onFinish: async ({ text }) => {
-        if (!text.trim()) return;
-        try {
-          await saveMessage({ conversationId, role: "assistant", content: text });
-        } catch (err) {
-          console.error("[POST /chat] could not persist the reply:", err);
-        }
+    const stream = createUIMessageStream({
+      execute: async ({ writer }) => {
+        const result = streamText({
+          model,
+          system: buildSystemPrompt({
+            profile,
+            next: nextSlot(profile, quotesShown),
+            readyForQuotes: isReadyForQuotes(profile),
+            quotesShown,
+          }),
+          messages: await convertToModelMessages(messages),
+          tools: buildTools(conversationId, profileRef),
+          // Let the model speak again after a tool returns, instead of ending on raw data.
+          stopWhen: stepCountIs(6),
+          onError: ({ error }) => console.error("[POST /chat] stream failed:", error),
+          onFinish: async ({ text }) => {
+            if (!text.trim()) return;
+            try {
+              await saveMessage({ conversationId, role: "assistant", content: text });
+            } catch (err) {
+              console.error("[POST /chat] could not persist the reply:", err);
+            }
+          },
+        });
+
+        writer.merge(result.toUIMessageStream());
+        await result.finishReason;
+
+        // Tell the interface which question is now outstanding, so it can render
+        // the matching cards or dropdown under the reply.
+        const latestProfile = profileRef.current;
+        const showQuotes = quotesShown || (await hasQuotes(conversationId));
+        writer.write({
+          type: "data-profile",
+          id: "profile",
+          data: {
+            profile: latestProfile,
+            nextSlot: nextSlot(latestProfile, showQuotes),
+            readyForQuotes: isReadyForQuotes(latestProfile),
+          },
+        });
       },
     });
 
-    return result.toUIMessageStreamResponse();
+    return createUIMessageStreamResponse({ stream });
   } catch (err) {
     console.error("[POST /chat] gateway call failed:", err);
     return c.json({ error: "The assistant is unavailable right now." }, 502);

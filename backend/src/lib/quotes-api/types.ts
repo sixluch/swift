@@ -11,6 +11,10 @@ export interface QuoteRequest {
   name: string;
   age: number;
   coverageTypes: CoverageType[];
+  /** ISO 3166-1 alpha-2 country of residence — drives the regional price band. */
+  country?: string;
+  /** Ages of any family members on the same policy; each is priced and added. */
+  additionalAges?: number[];
 }
 
 export interface Quote {
