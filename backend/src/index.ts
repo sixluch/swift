@@ -41,13 +41,15 @@ app.use(
   }),
 );
 
-// Same budget as /chat: each call is a gateway request.
+// The machine API is one server (the voice AI) fronting many callers, so the
+// per-IP budget is far wider than /chat's — the Bearer key is the real gate,
+// this only blunts a runaway loop.
 app.use(
-  "/api/ask",
+  "/api/*",
   rateLimit({
-    limit: 30,
+    limit: 300,
     windowMs: 5 * 60 * 1000,
-    message: "Too many questions in a short time. Give it a moment and try again.",
+    message: "Too many requests in a short time. Give it a moment and try again.",
   }),
 );
 

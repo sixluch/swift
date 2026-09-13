@@ -136,7 +136,9 @@ export const quoteFormSchema = z.object({
     )
     .max(MAX_DEPENDANTS, `Up to ${MAX_DEPENDANTS} family members per quote.`)
     .default([]),
-  coverageTier: z.enum(COVERAGE_TIERS, { error: "Pick a cover level." }),
+  coverageTier: z.enum(COVERAGE_TIERS, {
+    error: `Pick a cover level: ${COVERAGE_TIERS.join(", ")}.`,
+  }),
 });
 
 export type QuoteFormInput = z.infer<typeof quoteFormSchema>;
@@ -300,3 +302,15 @@ export const askSchema = z.object({
 });
 
 export type AskInput = z.infer<typeof askSchema>;
+
+/**
+ * `POST /api/quotes` — the quote form as a machine caller sends it: the same
+ * fields as the web form (same schema, so the two cannot drift), no leadId,
+ * and an optional `contact`. With `contact` the caller becomes a lead in the
+ * CRM exactly as a web visitor would; without it the call only prices.
+ */
+export const apiQuoteSchema = quoteFormSchema.omit({ leadId: true }).extend({
+  contact: leadInputSchema.pick({ email: true, phone: true }).optional(),
+});
+
+export type ApiQuoteInput = z.infer<typeof apiQuoteSchema>;

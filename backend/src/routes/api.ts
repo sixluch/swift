@@ -9,13 +9,24 @@ import {
   getGeneralKnowledge,
   listInsurerKnowledge,
 } from "../lib/knowledge.js";
-import { askSchema } from "../lib/validation.js";
+import {
+  findOrCreateLead,
+  priceForm,
+  saveProfile,
+  snapshotQuotes,
+  type PricedForm,
+} from "../lib/quote-flow.js";
+import { apiQuoteSchema, askSchema } from "../lib/validation.js";
+
+/** `leads.source` for callers of this API — how the admin report tells them apart. */
+const API_LEAD_SOURCE = "voice-ai";
 
 /**
- * Machine-facing knowledge API, for the voice AI and for testing from Postman.
- * Bearer key on every route (`lib/api-key.ts`). Nothing here touches a lead
- * or a conversation, and nothing is persisted — the caller owns its own
- * transcript and passes it back as `history` if it wants continuity.
+ * Machine-facing API, for the voice AI and for testing from Postman. Bearer
+ * key on every route (`lib/api-key.ts`). The knowledge routes persist
+ * nothing — the caller owns its own transcript and passes it back as
+ * `history` if it wants continuity. `/quotes` persists only when the caller
+ * supplies a `contact`, and then exactly as the web form would.
  */
 export const apiRoute = new Hono();
 
@@ -98,4 +109,62 @@ apiRoute.post("/ask", async (c) => {
     console.error("[POST /api/ask] gateway call failed:", err);
     return c.json({ error: "The assistant is unavailable right now." }, 502);
   }
+});
+
+/**
+ * The quote form for a machine caller: the same fields the web form submits,
+ * priced by the same provider call. With `contact` the person becomes a lead
+ * (reused by email, so repeat calls accumulate on one CRM record) and the
+ * profile + quotes are recorded like a web COMPARE; without it, nothing is
+ * stored and the response is prices only.
+ */
+apiRoute.post("/quotes", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const parsed = apiQuoteSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Validation failed.", fields: fieldErrors(parsed.error) }, 400);
+  }
+  const { contact, ...form } = parsed.data;
+
+  let lead: { id: string; created: boolean } | null = null;
+  let conversationId: string | null = null;
+  if (contact) {
+    try {
+      lead = await findOrCreateLead({ ...contact, source: API_LEAD_SOURCE });
+      conversationId = await saveProfile(lead.id, form);
+    } catch (err) {
+      console.error("[POST /api/quotes] could not persist the lead:", err);
+      return c.json({ error: "Could not save the caller's details. Please try again." }, 500);
+    }
+  }
+
+  let priced: PricedForm;
+  try {
+    priced = await priceForm(form);
+  } catch (err) {
+    console.error("[POST /api/quotes] provider failed:", err);
+    return c.json({ error: "Could not fetch quotations. Please try again." }, 502);
+  }
+
+  if (conversationId) {
+    try {
+      await snapshotQuotes(conversationId, form, priced);
+    } catch (err) {
+      console.error("[POST /api/quotes] could not snapshot the quote request:", err);
+    }
+  }
+
+  return c.json({
+    quotes: priced.quotes,
+    notices: priced.notices,
+    /** The form as accepted (trimmed, upper-cased ISO codes) — read it back to the caller. */
+    profile: form,
+    lead,
+  });
 });
