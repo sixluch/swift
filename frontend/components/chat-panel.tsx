@@ -140,7 +140,7 @@ export function ChatPanel({
                   onChange={(e) => setDraft(e.target.value)}
                   disabled={locked}
                   aria-label="Message"
-                  placeholder={locked ? "Add your details to start" : "Type your answer…"}
+                  placeholder={locked ? "Add your details to start" : `Ask ${config.assistantName} anything…`}
                   className="min-w-0 flex-1 bg-transparent py-1.5 text-sm text-white outline-none placeholder:text-slate-500 disabled:cursor-not-allowed"
                 />
                 <button

@@ -19,6 +19,12 @@ export const env = {
   ASSISTANT_NAME: process.env.ASSISTANT_NAME ?? "Nomi",
   QUOTE_CURRENCY: process.env.QUOTE_CURRENCY ?? "USD",
 
+  /**
+   * Bearer key for the machine-facing `/api/*` routes (voice AI, Postman).
+   * Empty means those routes answer 503 — closed, never open.
+   */
+  KNOWLEDGE_API_KEY: process.env.KNOWLEDGE_API_KEY ?? "",
+
   /** How long an admin stays signed in. Short by design — this is a bulk PII surface. */
   ADMIN_SESSION_HOURS: Number(process.env.ADMIN_SESSION_HOURS ?? 8),
   /**

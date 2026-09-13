@@ -13,6 +13,10 @@ import {
   type AdminEnv,
 } from "../lib/admin-auth.js";
 import { toCsv } from "../lib/csv.js";
+import { describeDependants } from "../lib/profile.js";
+import { adminInsurersRoute } from "./admin-insurers.js";
+import { adminRateCardsRoute } from "./admin-rate-cards.js";
+import { adminSettingsRoute } from "./admin-settings.js";
 import { fieldErrors } from "../lib/http.js";
 import { adminLeadsQuerySchema, adminLoginSchema, type AdminLeadsQuery } from "../lib/validation.js";
 
@@ -79,6 +83,14 @@ adminRoute.get("/auth/me", requireAdmin, (c) => c.json(c.get("admin")));
 adminRoute.use("/leads", requireAdmin);
 adminRoute.use("/leads/*", requireAdmin);
 adminRoute.use("/leads.csv", requireAdmin);
+adminRoute.use("/insurers", requireAdmin);
+adminRoute.use("/insurers/*", requireAdmin);
+adminRoute.use("/rate-cards/*", requireAdmin);
+adminRoute.use("/settings/*", requireAdmin);
+
+adminRoute.route("/insurers", adminInsurersRoute);
+adminRoute.route("/rate-cards", adminRateCardsRoute);
+adminRoute.route("/settings", adminSettingsRoute);
 
 /** Columns shared by the table and the CSV, so the two can never disagree. */
 const leadColumns = {
@@ -92,8 +104,9 @@ const leadColumns = {
   country: schema.conversations.country,
   nationality: schema.conversations.nationality,
   age: schema.conversations.age,
-  planType: schema.conversations.planType,
-  familyAges: schema.conversations.familyAges,
+  gender: schema.conversations.gender,
+  effectiveDate: schema.conversations.effectiveDate,
+  dependants: schema.conversations.dependants,
   coverageTier: schema.conversations.coverageTier,
   deliveryChannel: schema.conversations.deliveryChannel,
   messageCount: sql<number>`(
@@ -184,8 +197,10 @@ const CSV_HEADERS = [
   "Country",
   "Nationality",
   "Age",
+  "Gender",
+  "Start date",
   "Plan type",
-  "Family ages",
+  "Family",
   "Cover level",
   "Send by",
   "Messages",
@@ -220,8 +235,11 @@ adminRoute.get("/leads.csv", async (c) => {
       r.country,
       r.nationality,
       r.age,
-      r.planType,
-      r.familyAges,
+      r.gender,
+      r.effectiveDate,
+      // Derived, not stored: a household with anyone besides the applicant is a family policy.
+      r.conversationId ? ((r.dependants?.length ?? 0) > 0 ? "family" : "individual") : null,
+      describeDependants(r.dependants ?? []),
       r.coverageTier,
       r.deliveryChannel,
       r.messageCount ?? 0,

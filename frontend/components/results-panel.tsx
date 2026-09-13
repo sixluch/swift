@@ -2,12 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { Loader2, Sparkles, TriangleAlert } from "lucide-react";
-import { CoverageChips } from "@/components/coverage-chips";
 import { QuoteCard } from "@/components/quote-card";
-import { config } from "@/lib/config";
-import type { CoverageType } from "@/lib/coverage";
-import type { Quote } from "@/lib/types";
+import { monthlyEquivalent, type Quote } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { DeliveryActions } from "@/components/delivery-actions";
 
 type SortKey = "price-asc" | "price-desc" | "coverage-desc";
 
@@ -18,24 +16,14 @@ const SORTS: { id: SortKey; label: string }[] = [
 ];
 
 interface ResultsPanelProps {
-  selected: CoverageType[];
-  onToggle: (id: CoverageType) => void;
   quotes: Quote[];
+  /** Insurer-level messages, e.g. a real card that does not cover this country. */
+  notices?: string[];
   loading: boolean;
-  /** Set when the chip-driven fetch failed. */
   error?: string | null;
-  /** True while prices assume an age, because the chat hasn't produced one yet. */
-  indicative?: boolean;
 }
 
-export function ResultsPanel({
-  selected,
-  onToggle,
-  quotes,
-  loading,
-  error = null,
-  indicative = false,
-}: ResultsPanelProps) {
+export function ResultsPanel({ quotes, notices = [], loading, error = null }: ResultsPanelProps) {
   const [sort, setSort] = useState<SortKey>("price-asc");
   const [insurer, setInsurer] = useState<string>("all");
 
@@ -48,32 +36,38 @@ export function ResultsPanel({
     const filtered =
       insurer === "all" ? quotes : quotes.filter((q) => q.insurer === insurer);
 
+    // Monthly-equivalent throughout: an annual rate-card premium and a monthly
+    // mock one are not comparable as raw numbers.
     return [...filtered].sort((a, b) => {
-      if (sort === "price-desc") return b.monthlyPremium - a.monthlyPremium;
+      if (sort === "price-desc") return monthlyEquivalent(b) - monthlyEquivalent(a);
       if (sort === "coverage-desc") {
         return (
           b.coverageTypes.length - a.coverageTypes.length ||
-          a.monthlyPremium - b.monthlyPremium
+          monthlyEquivalent(a) - monthlyEquivalent(b)
         );
       }
-      return a.monthlyPremium - b.monthlyPremium;
+      return monthlyEquivalent(a) - monthlyEquivalent(b);
     });
   }, [quotes, insurer, sort]);
 
-  const cheapest = visible.length > 0 ? visible[0].monthlyPremium : null;
+  const cheapest = visible.length > 0 ? monthlyEquivalent(visible[0]) : null;
 
   return (
     <section
       className="flex min-h-0 flex-1 flex-col bg-navy-850 px-4 py-5 sm:px-6"
-      aria-label="Coverage and results"
+      aria-label="Results"
     >
-      <p className="text-[11px] font-semibold tracking-[0.14em] text-slate-400">COVERAGE</p>
-      <div className="mt-3">
-        <CoverageChips selected={selected} onToggle={onToggle} />
+      <div className="flex items-baseline justify-between">
+        <p className="text-[11px] font-semibold tracking-[0.14em] text-slate-400">YOUR MATCHES</p>
+        {quotes.length > 0 && (
+          <span className="text-[11px] text-slate-500">
+            {visible.length} of {quotes.length}
+          </span>
+        )}
       </div>
 
       {quotes.length > 0 && (
-        <div className="mt-5 flex flex-wrap items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="flex gap-1 rounded-full border border-white/10 bg-navy-900/60 p-0.5">
             {SORTS.map((option) => (
               <button
@@ -106,18 +100,26 @@ export function ResultsPanel({
               </option>
             ))}
           </select>
-
-          <span className="text-[11px] text-slate-500">
-            {visible.length} of {quotes.length}
-          </span>
         </div>
       )}
 
-      {quotes.length > 0 && indicative && (
-        <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
-          Indicative prices — tell {config.assistantName} your age and these firm up.
-        </p>
+      {/* An insurer that can't cover this visitor is a result, not an absence —
+          without this the panel just silently omits them. */}
+      {notices.length > 0 && (
+        <ul className="mt-4 space-y-1.5">
+          {notices.map((notice) => (
+            <li
+              key={notice}
+              className="flex gap-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2 text-[11px] leading-relaxed text-amber-200/90"
+            >
+              <TriangleAlert aria-hidden className="mt-px size-3.5 shrink-0" />
+              <span>{notice}</span>
+            </li>
+          ))}
+        </ul>
       )}
+
+      {quotes.length > 0 && <DeliveryActions quotes={visible} />}
 
       <div className="no-scrollbar mt-5 min-h-0 flex-1 overflow-y-auto">
         {quotes.length === 0 ? (
@@ -126,7 +128,7 @@ export function ResultsPanel({
           <ul className="grid grid-cols-1 gap-3 pb-2 sm:grid-cols-2 lg:grid-cols-3">
             {visible.map((quote) => (
               <li key={quote.id}>
-                <QuoteCard quote={quote} isCheapest={quote.monthlyPremium === cheapest} />
+                <QuoteCard quote={quote} isCheapest={monthlyEquivalent(quote) === cheapest} />
               </li>
             ))}
           </ul>
@@ -161,8 +163,8 @@ function EmptyState({ loading, error }: { loading: boolean; error: string | null
       </h2>
       <p className="mt-2 max-w-xs text-sm leading-relaxed text-slate-400">
         {loading
-          ? "Checking the market against what you told Nomi."
-          : `Start a quote with ${config.assistantName} and the whole market lands here — ranked, filterable, comparable.`}
+          ? "Checking the market against your form."
+          : "Fill in the quote form and press Compare — the whole market lands here, ranked, filterable, comparable."}
       </p>
     </div>
   );

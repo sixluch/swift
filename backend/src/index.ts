@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "./env.js";
 import { adminRoute } from "./routes/admin.js";
+import { apiRoute } from "./routes/api.js";
 import { chatRoute } from "./routes/chat.js";
 import { leadsRoute } from "./routes/leads.js";
 import { rateLimit } from "./lib/rate-limit.js";
@@ -14,8 +15,8 @@ app.use(
   "*",
   cors({
     origin: env.CORS_ALLOWED_ORIGINS,
-    allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["Content-Type"],
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   }),
 );
@@ -40,6 +41,16 @@ app.use(
   }),
 );
 
+// Same budget as /chat: each call is a gateway request.
+app.use(
+  "/api/ask",
+  rateLimit({
+    limit: 30,
+    windowMs: 5 * 60 * 1000,
+    message: "Too many questions in a short time. Give it a moment and try again.",
+  }),
+);
+
 // A password is the real defence; this just makes guessing it slow.
 app.use(
   "/admin/auth/login",
@@ -54,6 +65,7 @@ app.route("/leads", leadsRoute);
 app.route("/chat", chatRoute);
 app.route("/quotes", quotesRoute);
 app.route("/admin", adminRoute);
+app.route("/api", apiRoute);
 
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   console.log(`swiftbroker-backend listening on http://localhost:${info.port}`);

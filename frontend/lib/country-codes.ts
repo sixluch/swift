@@ -228,6 +228,12 @@ export function dialCodeFor(iso: string): string | undefined {
   return BY_ISO.get(iso)?.dial;
 }
 
+/** ISO → display name, falling back to the code itself so nothing renders blank. */
+export function countryNameFor(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return BY_ISO.get(iso)?.name ?? iso;
+}
+
 /**
  * Joins the selected dial code to the digits typed, producing the single E.164
  * string `POST /leads` expects. Strips separators and the national trunk zero

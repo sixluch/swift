@@ -1,21 +1,34 @@
 import { Hono } from "hono";
-import { getQuotes } from "../lib/quotes-api/index.js";
+import { db, schema } from "../db/client.js";
+import {
+  LeadNotFoundError,
+  findOrCreateConversation,
+  updateProfile,
+} from "../lib/conversations.js";
 import { fieldErrors } from "../lib/http.js";
-import { quotePreviewSchema, quoteRequestSchema } from "../lib/validation.js";
+import { coverageForTier, dependantAges } from "../lib/profile.js";
+import { getQuotes } from "../lib/quotes-api/index.js";
+import {
+  deliveryChoiceSchema,
+  quoteFormSchema,
+  quoteRequestSchema,
+} from "../lib/validation.js";
 
 export const quotesRoute = new Hono();
 
-/**
- * Indicative pricing for a coverage selection alone, so the results panel can
- * fill in the moment a chip is clicked. Age is optional; without it the mock
- * prices a mid-band applicant, and the UI labels the results as indicative.
- * Nothing is persisted here — only the AI's getQuotes tool snapshots a request,
- * because only that one belongs to a conversation.
- */
-const PREVIEW_AGE = 30;
-const PREVIEW_NAME = "Guest";
+const SESSION_EXPIRED = "Your session expired. Please enter your details again.";
 
-quotesRoute.post("/preview", async (c) => {
+/**
+ * The quote form's COMPARE button. One call does the three things that belong
+ * together: the submitted profile becomes the lead's conversation profile (the
+ * admin report reads it), the provider is asked to price it, and the result is
+ * snapshotted on quote_requests — which is also what the support chat reads
+ * back, so the model can only discuss quotes that were actually shown.
+ *
+ * Re-submitting overwrites the profile and adds another snapshot; the history
+ * of what was asked is the snapshots, not the profile.
+ */
+quotesRoute.post("/request", async (c) => {
   let body: unknown;
   try {
     body = await c.req.json();
@@ -23,29 +36,89 @@ quotesRoute.post("/preview", async (c) => {
     return c.json({ error: "Invalid JSON body." }, 400);
   }
 
-  const parsed = quotePreviewSchema.safeParse(body);
+  const parsed = quoteFormSchema.safeParse(body);
   if (!parsed.success) {
     return c.json({ error: "Validation failed.", fields: fieldErrors(parsed.error) }, 400);
   }
 
-  const age = parsed.data.age ?? PREVIEW_AGE;
+  const { leadId, ...form } = parsed.data;
+
+  let conversationId: string;
+  try {
+    conversationId = await findOrCreateConversation(leadId);
+    // Saved before pricing: a submission the provider then fails on is still a
+    // lead who told us what they want, which the CRM should see.
+    await updateProfile(conversationId, form);
+  } catch (err) {
+    if (err instanceof LeadNotFoundError) return c.json({ error: SESSION_EXPIRED }, 404);
+    console.error("[POST /quotes/request] could not persist the profile:", err);
+    return c.json({ error: "Something went wrong. Please try again." }, 500);
+  }
+
+  const coverageTypes = coverageForTier(form.coverageTier);
+
+  let quotes;
+  let notices: string[] | undefined;
+  try {
+    ({ quotes, notices } = await getQuotes({
+      name: form.fullName,
+      age: form.age,
+      coverageTypes,
+      country: form.country,
+      additionalAges: dependantAges(form.dependants),
+    }));
+  } catch (err) {
+    console.error("[POST /quotes/request] provider failed:", err);
+    return c.json({ error: "Could not fetch quotations. Please try again." }, 502);
+  }
 
   try {
-    const { quotes } = await getQuotes({
-      name: PREVIEW_NAME,
-      age,
-      coverageTypes: parsed.data.coverageTypes,
-      country: parsed.data.country,
-      additionalAges: parsed.data.additionalAges,
+    await db.insert(schema.quoteRequests).values({
+      conversationId,
+      name: form.fullName,
+      age: form.age,
+      coverageType: coverageTypes,
+      quotesReturned: quotes,
+      notices: notices ?? [],
+      profile: form,
     });
-    return c.json({ quotes, age, assumedAge: parsed.data.age === undefined });
   } catch (err) {
-    console.error("[POST /quotes/preview] provider failed:", err);
-    return c.json({ error: "Could not fetch quotations. Please try again." }, 502);
+    // A logging failure must not cost the visitor their quotes.
+    console.error("[POST /quotes/request] could not snapshot the quote request:", err);
+  }
+
+  return c.json({ quotes, notices });
+});
+
+/** Records which channel the visitor picked for the comparison. Nothing is sent. */
+quotesRoute.post("/delivery", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const parsed = deliveryChoiceSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Validation failed.", fields: fieldErrors(parsed.error) }, 400);
+  }
+
+  try {
+    const conversationId = await findOrCreateConversation(parsed.data.leadId);
+    await updateProfile(conversationId, { deliveryChannel: parsed.data.channel });
+    return c.json({ ok: true, channel: parsed.data.channel });
+  } catch (err) {
+    if (err instanceof LeadNotFoundError) return c.json({ error: SESSION_EXPIRED }, 404);
+    console.error("[POST /quotes/delivery] could not persist the choice:", err);
+    return c.json({ error: "Something went wrong. Please try again." }, 500);
   }
 });
 
-/** Standalone REST surface for the same function the AI calls as a tool. */
+/**
+ * Stateless REST surface over the same provider call — nothing is persisted,
+ * no lead is needed. Kept so the pricing can be exercised with curl alone.
+ */
 quotesRoute.post("/", async (c) => {
   let body: unknown;
   try {
@@ -60,8 +133,8 @@ quotesRoute.post("/", async (c) => {
   }
 
   try {
-    const { quotes } = await getQuotes(parsed.data);
-    return c.json({ quotes });
+    const { quotes, notices } = await getQuotes(parsed.data);
+    return c.json({ quotes, notices });
   } catch (err) {
     console.error("[POST /quotes] provider failed:", err);
     return c.json({ error: "Could not fetch quotations. Please try again." }, 502);

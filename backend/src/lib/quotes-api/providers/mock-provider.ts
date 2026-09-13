@@ -97,7 +97,8 @@ function buildQuote(
     id: `${insurer.slug}-${tier.id}`,
     insurer: insurer.name,
     planName: `${insurer.name.split(" ")[0]} ${tier.label}`,
-    monthlyPremium: premiumFor(tier, insurer.priceFactor, request),
+    premium: premiumFor(tier, insurer.priceFactor, request),
+    premiumBasis: "monthly",
     currency: env.QUOTE_CURRENCY,
     coverageSummary: summarize(tier, request),
     coverageTypes: tier.covers,
@@ -120,7 +121,7 @@ export async function getMockQuotes(request: QuoteRequest): Promise<QuoteRespons
   const pool = matching.length >= MIN_QUOTES ? matching : all;
   const quotes = pool
     .map(({ quote }) => quote)
-    .sort((a, b) => a.monthlyPremium - b.monthlyPremium || a.id.localeCompare(b.id))
+    .sort((a, b) => a.premium - b.premium || a.id.localeCompare(b.id))
     .slice(0, MAX_QUOTES);
 
   return { quotes };

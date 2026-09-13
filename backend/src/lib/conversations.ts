@@ -5,9 +5,10 @@ import {
   coverageForTier,
   type CoverageTier,
   type DeliveryChannel,
-  type PlanType,
+  type Gender,
   type Profile,
 } from "./profile.js";
+import type { Quote } from "./quotes-api/types.js";
 
 /** Thrown when the client sends a leadId that is not in the database (e.g. a stale session). */
 export class LeadNotFoundError extends Error {
@@ -44,7 +45,7 @@ export async function findOrCreateConversation(leadId: string): Promise<string> 
   return created.id;
 }
 
-/** Reads the answers collected so far for this conversation. */
+/** Reads the profile the form last submitted for this conversation. */
 export async function getProfile(conversationId: string): Promise<Profile> {
   const [row] = await db
     .select({
@@ -52,8 +53,9 @@ export async function getProfile(conversationId: string): Promise<Profile> {
       country: schema.conversations.country,
       nationality: schema.conversations.nationality,
       age: schema.conversations.age,
-      planType: schema.conversations.planType,
-      familyAges: schema.conversations.familyAges,
+      gender: schema.conversations.gender,
+      effectiveDate: schema.conversations.effectiveDate,
+      dependants: schema.conversations.dependants,
       coverageTier: schema.conversations.coverageTier,
       deliveryChannel: schema.conversations.deliveryChannel,
     })
@@ -61,21 +63,22 @@ export async function getProfile(conversationId: string): Promise<Profile> {
     .where(eq(schema.conversations.id, conversationId))
     .limit(1);
 
-  if (!row) return { ...EMPTY_PROFILE };
+  if (!row) return { ...EMPTY_PROFILE, dependants: [] };
 
   return {
     ...EMPTY_PROFILE,
     ...row,
-    planType: (row.planType as PlanType | null) ?? null,
+    gender: (row.gender as Gender | null) ?? null,
+    dependants: Array.isArray(row.dependants) ? row.dependants : [],
     coverageTier: (row.coverageTier as CoverageTier | null) ?? null,
     deliveryChannel: (row.deliveryChannel as DeliveryChannel | null) ?? null,
   };
 }
 
 /**
- * Merges answers into the stored profile and returns the result. Only keys that
- * are actually present are written, so a partial update never blanks a slot the
- * user already answered.
+ * Merges fields into the stored profile and returns the result. Only keys that
+ * are actually present are written, so recording a delivery preference never
+ * blanks the form answers, and vice versa.
  */
 export async function updateProfile(
   conversationId: string,
@@ -100,26 +103,27 @@ export async function updateProfile(
   return getProfile(conversationId);
 }
 
-/** True once a quote request has been recorded for this conversation. */
-export async function hasQuotes(conversationId: string): Promise<boolean> {
+/**
+ * The quotes currently on the visitor's screen: the most recent snapshot the
+ * form produced. The chat reads this rather than trusting anything the client
+ * sends, so the model can only ever discuss prices that were actually quoted.
+ */
+export async function latestQuotes(
+  conversationId: string,
+): Promise<{ quotes: Quote[]; notices: string[] }> {
   const [row] = await db
-    .select({ id: schema.quoteRequests.id })
+    .select({
+      quotes: schema.quoteRequests.quotesReturned,
+      notices: schema.quoteRequests.notices,
+    })
     .from(schema.quoteRequests)
     .where(eq(schema.quoteRequests.conversationId, conversationId))
+    .orderBy(desc(schema.quoteRequests.createdAt))
     .limit(1);
-  return Boolean(row);
-}
-
-/**
- * Pulls the ages out of a free-text answer like "partner 42, kids 10 and 7".
- * Anything outside a plausible human age is dropped rather than trusted.
- */
-export function parseFamilyAges(text: string | null): number[] {
-  if (!text) return [];
-  return (text.match(/\d{1,3}/g) ?? [])
-    .map(Number)
-    .filter((age) => Number.isInteger(age) && age >= 0 && age <= 120)
-    .slice(0, 10);
+  return {
+    quotes: Array.isArray(row?.quotes) ? (row.quotes as Quote[]) : [],
+    notices: Array.isArray(row?.notices) ? row.notices : [],
+  };
 }
 
 export async function saveMessage(params: {

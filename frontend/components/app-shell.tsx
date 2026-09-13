@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatPanel } from "@/components/chat-panel";
 import { LeadGate } from "@/components/lead-gate";
+import { QuoteForm } from "@/components/quote-form";
 import { ResultsPanel } from "@/components/results-panel";
 import { SiteHeader, type ChatMode } from "@/components/site-header";
 import { WhatsappFab } from "@/components/whatsapp-fab";
 import { track } from "@/lib/analytics";
-import type { CoverageType } from "@/lib/coverage";
 import { useLead } from "@/lib/lead-context";
+import { monthlyEquivalent } from "@/lib/types";
 import { useBrokerChat } from "@/lib/use-broker-chat";
-import { useCoverageQuotes } from "@/lib/use-coverage-quotes";
+import { useQuoteRequest } from "@/lib/use-quote-request";
 import { cn } from "@/lib/utils";
 
 type MobileTab = "chat" | "matches";
@@ -19,31 +20,15 @@ export function AppShell() {
   const { leadId, isUnlocked, clearLead } = useLead();
   const [mode, setMode] = useState<ChatMode>("chat");
   const [tab, setTab] = useState<MobileTab>("chat");
-  const [coverage, setCoverage] = useState<CoverageType[]>([]);
 
-  const {
-    messages,
-    quotes: chatQuotes,
-    quotedAge,
-    fetchingQuotes,
-    send,
-    retry,
-    isBusy,
-    error,
-  } = useBrokerChat({
+  // The form is the only source of quotes; the chat only talks about them.
+  const request = useQuoteRequest({ leadId, onSessionExpired: clearLead });
+  const { messages, send, retry, isBusy, error } = useBrokerChat({
     leadId,
-    coverageTypes: coverage,
     onSessionExpired: clearLead,
   });
 
-  const preview = useCoverageQuotes({ coverageTypes: coverage, age: quotedAge });
-
-  // Selecting a chip is a direct request to see that market, so it drives the
-  // panel; with nothing selected, the panel follows the conversation. Once the
-  // AI has quoted, both are priced off the same age and agree.
-  const usingPreview = coverage.length > 0;
-  const quotes = usingPreview ? preview.quotes : chatQuotes;
-  const loading = usingPreview ? preview.loading : fetchingQuotes;
+  const { quotes } = request;
 
   // On mobile the results panel is behind a tab — surface it when quotes land.
   const announced = useRef(0);
@@ -53,7 +38,7 @@ export function AppShell() {
       track({
         name: "quotes_shown",
         count: quotes.length,
-        cheapest: Math.min(...quotes.map((q) => q.monthlyPremium)),
+        cheapest: Math.min(...quotes.map(monthlyEquivalent)),
       });
       setTab("matches");
     }
@@ -66,16 +51,6 @@ export function AppShell() {
     setVoiceUnsupported(true);
     setMode("chat");
   }, []);
-
-  function toggleCoverage(id: CoverageType) {
-    setCoverage((current) => {
-      const next = current.includes(id)
-        ? current.filter((c) => c !== id)
-        : [...current, id];
-      track({ name: "coverage_selected", coverageTypes: next });
-      return next;
-    });
-  }
 
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden bg-navy-900 text-white">
@@ -91,21 +66,38 @@ export function AppShell() {
       {/* Mobile: one panel at a time. lg and up: the two-panel split from §10. */}
       <div className="flex shrink-0 gap-1 border-b border-white/5 px-4 py-2 lg:hidden">
         <TabButton active={tab === "chat"} onClick={() => setTab("chat")}>
-          Chat
+          Quote &amp; chat
         </TabButton>
         <TabButton active={tab === "matches"} onClick={() => setTab("matches")}>
-          Matches{coverage.length > 0 ? ` · ${coverage.length}` : ""}
+          Matches{quotes.length > 0 ? ` · ${quotes.length}` : ""}
         </TabButton>
       </div>
 
       <main className="flex min-h-0 flex-1 lg:divide-x lg:divide-white/5">
+        {/* Left column: the quote form on top, the support chat beneath it. */}
         <div
           className={cn(
-            // Chat is the narrower column; the results grid needs the room.
-            "min-h-0 flex-1 lg:w-[26%] lg:max-w-[520px] lg:min-w-[340px] lg:flex-none lg:flex",
+            "min-h-0 flex-1 flex-col lg:w-[30%] lg:max-w-[560px] lg:min-w-[360px] lg:flex-none lg:flex",
             tab === "chat" ? "flex" : "hidden",
           )}
         >
+          {/* Scrolls on its own while expanded, capped so the chat input stays
+              reachable; collapses to a summary once COMPARE has run. */}
+          <section
+            aria-label="Quote form"
+            className="no-scrollbar max-h-[62dvh] shrink-0 overflow-y-auto border-b border-white/5 px-4 py-4 sm:px-6"
+          >
+            <QuoteForm
+              key={leadId ?? "locked"}
+              leadId={leadId}
+              submitted={request.submitted}
+              loading={request.loading}
+              error={request.error}
+              serverErrors={request.fieldErrors}
+              onSubmit={request.submit}
+            />
+          </section>
+
           <ChatPanel
             messages={messages}
             locked={!isUnlocked}
@@ -119,12 +111,10 @@ export function AppShell() {
         </div>
         <div className={cn("min-h-0 flex-1 lg:flex", tab === "matches" ? "flex" : "hidden")}>
           <ResultsPanel
-            selected={coverage}
-            onToggle={toggleCoverage}
             quotes={quotes}
-            loading={loading}
-            error={usingPreview ? preview.error : null}
-            indicative={usingPreview && quotedAge === undefined}
+            notices={request.notices}
+            loading={request.loading}
+            error={request.error}
           />
         </div>
       </main>

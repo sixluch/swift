@@ -54,13 +54,10 @@ export function LeadGate() {
 
     setSubmitting(true);
     try {
-      const { leadId } = await api.createLead({
-        email,
-        phone: toE164(countryIso, localNumber),
-        source,
-      });
+      const phone = toE164(countryIso, localNumber);
+      const { leadId } = await api.createLead({ email, phone, source });
       track({ name: "lead_captured", source });
-      setLeadId(leadId);
+      setLeadId(leadId, { email: email.trim(), phone });
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.fields) setErrors(err.fields);
